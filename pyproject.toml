@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "c64-ultimate-mcp"
+version = "1.0.0"
+description = "Model Context Protocol server for Commodore 64 Ultimate development"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "azcoigreach"}
+]
+keywords = ["mcp", "commodore64", "c64", "ultimate", "retro", "development"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/azcoigreach/c64-ultimate-mcp"
+Documentation = "https://github.com/azcoigreach/c64-ultimate-mcp#readme"
+Repository = "https://github.com/azcoigreach/c64-ultimate-mcp"
+Issues = "https://github.com/azcoigreach/c64-ultimate-mcp/issues"
+
+[project.scripts]
+c64-ultimate-mcp = "c64_ultimate_mcp:main"
