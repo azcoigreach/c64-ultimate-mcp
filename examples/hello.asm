@@ -14,7 +14,18 @@
         lda #$0e               ; Light blue
         sta $d020              ; Border color
         
-        ldx #$00               ; Counter
+        ; Clear first line
+        ldy #$00
+clear:
+        lda #$20               ; space
+        sta $0400,y
+        lda #$01               ; white color
+        sta $d800,y
+        iny
+        cpy #40
+        bne clear
+
+        ldx #$00               ; Counter for message
 loop:
         lda message,x          ; Load PETSCII/ASCII character
         beq done               ; If zero, we're done
