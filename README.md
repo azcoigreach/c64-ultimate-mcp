@@ -69,6 +69,10 @@ Set the following environment variables (or use `.env` file):
 - `C64_ULTIMATE_FTP_HOST` - FTP server address (usually same as host)
 - `C64_ULTIMATE_FTP_USER` - FTP username (default: anonymous)
 - `C64_ULTIMATE_FTP_PASS` - FTP password (default: empty)
+- `ASSEMBLER` - Assembler selection (default: `ca65`, future: `acme`, `dasm`)
+- `ASSEMBLER_PATH` - Path to assembler binary (default: `ca65`)
+- `LD65_PATH` - Path to ld65 linker binary (default: `ld65`)
+- `ASSEMBLER_TIMEOUT` - Assembly timeout in seconds (default: 30)
 
 ## Usage
 
@@ -118,6 +122,10 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
 - `run_prg_from_data` - Run PRG from hex data
 - `run_cartridge` - Load and run CRT file
 
+### Assembly
+- `assemble_asm` - Assemble 6502/6510 source (default ca65) and return hex-encoded PRG
+- `assemble_and_run_asm` - Assemble 6502/6510 source and immediately run via DMA (not stored)
+
 ### Memory Access
 - `write_memory` - Write to C64 memory via DMA (hex format)
 - `read_memory` - Read from C64 memory via DMA
@@ -151,6 +159,21 @@ Use write_memory tool:
   address: "D020"  (border color)
   data: "0E"       (light blue)
 ```
+
+### Assemble and Run (ca65)
+```
+Use assemble_and_run_asm:
+  source: """
+  .segment "CODE"
+  lda #$00
+  sta $d020 ; border black
+  sta $d021 ; background black
+  rts
+  """
+  load_address: 2049  # $0801 default
+```
+
+Returns assembly diagnostics plus the run result. For a PRG without auto-run BASIC stub, add your own stub or SYS entry point.
 
 ### Develop and Run a Program
 1. Write your BASIC or assembly program locally

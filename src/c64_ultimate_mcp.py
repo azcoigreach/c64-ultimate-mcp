@@ -25,6 +25,7 @@ from mcp.types import (
     LoggingLevel
 )
 import mcp.server.stdio
+from assembler import assemble_source, DEFAULT_ASSEMBLER, SUPPORTED_ASSEMBLERS
 
 # Load environment variables from .env file
 load_dotenv()
@@ -267,6 +268,56 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["file"]
+            }
+        ),
+
+        # Assembly (ca65)
+        Tool(
+            name="assemble_asm",
+            description="Assemble 6502/6510 source into a PRG using the configured assembler (default: ca65)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Assembly source code"
+                    },
+                    "load_address": {
+                        "type": "integer",
+                        "description": "Load address for the PRG (e.g., 2049 for $0801)",
+                        "default": 2049
+                    },
+                    "assembler": {
+                        "type": "string",
+                        "description": "Assembler choice (currently supports ca65)",
+                        "enum": sorted(list(SUPPORTED_ASSEMBLERS))
+                    }
+                },
+                "required": ["source"]
+            }
+        ),
+        Tool(
+            name="assemble_and_run_asm",
+            description="Assemble 6502/6510 source and immediately run it on the C64 via DMA (does not store on filesystem)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Assembly source code"
+                    },
+                    "load_address": {
+                        "type": "integer",
+                        "description": "Load address for the PRG (e.g., 2049 for $0801)",
+                        "default": 2049
+                    },
+                    "assembler": {
+                        "type": "string",
+                        "description": "Assembler choice (currently supports ca65)",
+                        "enum": sorted(list(SUPPORTED_ASSEMBLERS))
+                    }
+                },
+                "required": ["source"]
             }
         ),
         
@@ -596,6 +647,44 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             # Normalize path: remove leading slash if present
             file_path = arguments["file"].lstrip("/")
             result = await api_put("/v1/runners:run_crt", file=file_path)
+
+        # Assembly (ca65)
+        elif name == "assemble_asm":
+            load_address = int(arguments.get("load_address", 0x0801))
+            assembler_choice = arguments.get("assembler")
+            assembly = assemble_source(
+                arguments["source"],
+                load_address=load_address,
+                assembler=assembler_choice,
+            )
+            result = assembly.__dict__
+        elif name == "assemble_and_run_asm":
+            load_address = int(arguments.get("load_address", 0x0801))
+            assembler_choice = arguments.get("assembler")
+            assembly = assemble_source(
+                arguments["source"],
+                load_address=load_address,
+                assembler=assembler_choice,
+            )
+            if not assembly.success:
+                result = assembly.__dict__
+            elif not assembly.prg_hex:
+                result = {
+                    "errors": ["Assembly succeeded but no PRG data was produced"],
+                    "assembly": assembly.__dict__,
+                }
+            else:
+                prg_bytes = bytes.fromhex(assembly.prg_hex)
+                run_result = await api_post("/v1/runners:run_prg", data=prg_bytes)
+
+                # After loading, type RUN into keyboard buffer (helps BASIC stubs auto-start)
+                await api_put("/v1/machine:writemem", address="0277", data="5255554E0D")
+                await api_put("/v1/machine:writemem", address="00C6", data="05")
+
+                result = {
+                    "assembly": assembly.__dict__,
+                    "run_result": run_result,
+                }
         
         # Memory Access
         elif name == "write_memory":
