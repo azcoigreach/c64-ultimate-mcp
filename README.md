@@ -13,6 +13,7 @@ Model Context Protocol (MCP) server for developing on the Commodore 64 Ultimate 
 - Upload files via FTP and run them directly
 - Run programs from binary data without filesystem storage
 - Load and run cartridge (CRT) files
+ - Assemble 6502/6510 source via ca65 and run immediately
 
 ### 🔧 Memory Access (DMA)
 - Direct memory read/write via DMA
@@ -73,6 +74,8 @@ Set the following environment variables (or use `.env` file):
 - `ASSEMBLER_PATH` - Path to assembler binary (default: `ca65`)
 - `LD65_PATH` - Path to ld65 linker binary (default: `ld65`)
 - `ASSEMBLER_TIMEOUT` - Assembly timeout in seconds (default: 30)
+
+Current support: ca65 (from cc65). ACME/DASM may be added later.
 
 ## Usage
 
@@ -173,7 +176,9 @@ Use assemble_and_run_asm:
   load_address: 2049  # $0801 default
 ```
 
-Returns assembly diagnostics plus the run result. For a PRG without auto-run BASIC stub, add your own stub or SYS entry point.
+Returns assembly diagnostics plus the run result. For a PRG without auto-run BASIC stub, add your own stub or inject `SYS` via keyboard buffer.
+
+Examples in `examples/*.asm` are now ca65-compatible.
 
 ### Develop and Run a Program
 1. Write your BASIC or assembly program locally
