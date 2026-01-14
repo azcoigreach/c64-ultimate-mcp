@@ -611,6 +611,8 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             
             # After loading, type RUN into keyboard buffer to execute BASIC programs
             # PETSCII: R=52, U=55, N=4E, RETURN=0D
+            # Clear keyboard buffer length first
+            await api_put("/v1/machine:writemem", address="00C6", data="00")
             await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
             # Set keyboard buffer length to 4 (RUN + RETURN)
             await api_put("/v1/machine:writemem", address="00C6", data="04")
@@ -625,6 +627,7 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 
                 # After loading, type RUN into keyboard buffer to execute BASIC programs
                 # PETSCII: R=52, U=55, N=4E, RETURN=0D
+                await api_put("/v1/machine:writemem", address="00C6", data="00")
                 await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
                 await api_put("/v1/machine:writemem", address="00C6", data="04")
         elif name == "run_prg_from_data":
@@ -633,6 +636,7 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             
             # After loading, type RUN into keyboard buffer to execute BASIC programs
             # PETSCII: R=52, U=55, N=4E, RETURN=0D
+            await api_put("/v1/machine:writemem", address="00C6", data="00")
             await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
             await api_put("/v1/machine:writemem", address="00C6", data="04")
         elif name == "run_cartridge":
@@ -673,6 +677,8 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 target_addr = load_address + 0x000F
                 sys_str = f"SYS{target_addr}"
                 petscii = sys_str.encode("ascii") + b"\r"
+                # Clear keyboard buffer length before writing
+                await api_put("/v1/machine:writemem", address="00C6", data="00")
                 await api_put("/v1/machine:writemem", address="0277", data=petscii.hex())
                 await api_put("/v1/machine:writemem", address="00C6", data=f"{len(petscii):02x}")
 
