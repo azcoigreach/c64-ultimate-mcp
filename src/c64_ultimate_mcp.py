@@ -611,9 +611,9 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             
             # After loading, type RUN into keyboard buffer to execute BASIC programs
             # PETSCII: R=52, U=55, N=4E, RETURN=0D
-            await api_put("/v1/machine:writemem", address="0277", data="5255554E0D")
-            # Set keyboard buffer length to 5
-            await api_put("/v1/machine:writemem", address="00C6", data="05")
+            await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
+            # Set keyboard buffer length to 4 (RUN + RETURN)
+            await api_put("/v1/machine:writemem", address="00C6", data="04")
         elif name == "upload_and_run_prg":
             # Upload via FTP first
             upload_result = ftp_upload_file(arguments["local_path"], arguments["remote_path"])
@@ -625,16 +625,16 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 
                 # After loading, type RUN into keyboard buffer to execute BASIC programs
                 # PETSCII: R=52, U=55, N=4E, RETURN=0D
-                await api_put("/v1/machine:writemem", address="0277", data="5255554E0D")
-                await api_put("/v1/machine:writemem", address="00C6", data="05")
+                await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
+                await api_put("/v1/machine:writemem", address="00C6", data="04")
         elif name == "run_prg_from_data":
             data = bytes.fromhex(arguments["data"])
             result = await api_post("/v1/runners:run_prg", data=data)
             
             # After loading, type RUN into keyboard buffer to execute BASIC programs
             # PETSCII: R=52, U=55, N=4E, RETURN=0D
-            await api_put("/v1/machine:writemem", address="0277", data="5255554E0D")
-            await api_put("/v1/machine:writemem", address="00C6", data="05")
+            await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
+            await api_put("/v1/machine:writemem", address="00C6", data="04")
         elif name == "run_cartridge":
             # Normalize path: remove leading slash if present
             file_path = arguments["file"].lstrip("/")
