@@ -668,10 +668,13 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             else:
                 prg_bytes = bytes.fromhex(assembly.prg_hex)
                 run_result = await api_post("/v1/runners:run_prg", data=prg_bytes)
-
-                # After loading, type RUN into keyboard buffer (helps BASIC stubs auto-start)
-                await api_put("/v1/machine:writemem", address="0277", data="5255554E0D")
-                await api_put("/v1/machine:writemem", address="00C6", data="05")
+                # After loading, type SYS <addr> + RETURN into keyboard buffer
+                # Target address approximated as load_address + 0x000F (start of ML code when using a BASIC stub)
+                target_addr = load_address + 0x000F
+                sys_str = f"SYS{target_addr}"
+                petscii = sys_str.encode("ascii") + b"\r"
+                await api_put("/v1/machine:writemem", address="0277", data=petscii.hex())
+                await api_put("/v1/machine:writemem", address="00C6", data=f"{len(petscii):02x}")
 
                 result = {
                     "assembly": assembly.__dict__,
