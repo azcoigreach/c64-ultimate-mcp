@@ -116,34 +116,26 @@ def ftp_upload_file(local_path: str, remote_path: str) -> dict:
 
 def decode_screen_char(byte_val: int) -> str:
     """Decode a C64 screen code byte to ASCII character."""
-    # C64 screen codes (simplified - uppercase letters, numbers, symbols)
-    # 0x00-0x1F = uppercase A-Z (mapped to ASCII)
-    # 0x20-0x3F = symbols and numbers
-    # 0x40-0x5F = special characters
-    # 0x60-0x7F = lowercase (when lowercase mode is on)
-    
-    if 0 <= byte_val <= 25:
-        # Uppercase A-Z
-        return chr(65 + byte_val)
-    elif 26 <= byte_val <= 31:
-        # Additional chars (brackets, etc.)
-        chars = ['[', ']', '{', '}', '|', '~']
-        return chars[byte_val - 26]
-    elif 32 <= byte_val <= 127:
-        # Direct ASCII characters
-        return chr(byte_val)
-    elif 128 <= byte_val <= 153:
-        # Lowercase a-z (128-153 = a-z)
-        return chr(97 + (byte_val - 128))
-    elif 154 <= byte_val <= 159:
-        # Additional chars
-        chars = ['[', ']', '{', '}', '|', '~']
-        return chars[byte_val - 154]
-    elif 160 <= byte_val <= 255:
-        # Reverse video/control codes, display as space
+    # Simplified mapping focused on uppercase letters and common chars.
+    # Screen codes: 1-26 => 'A'-'Z'
+    if 1 <= byte_val <= 26:
+        return chr(64 + byte_val)
+    # Space
+    if byte_val == 32:
         return ' '
-    else:
-        return '?'
+    # Digits and punctuation (approximate for typical ROM charset)
+    if 48 <= byte_val <= 57:  # '0'-'9'
+        return chr(byte_val)
+    # Map codes 32-63 directly where useful
+    if 33 <= byte_val <= 63:
+        return chr(byte_val)
+    # PETSCII uppercase range mirrors ASCII for many values
+    if 64 <= byte_val <= 95:
+        return chr(byte_val - 64)
+    if 96 <= byte_val <= 127:
+        return chr(byte_val - 32)
+    # Fallback
+    return ' '
 
 
 
