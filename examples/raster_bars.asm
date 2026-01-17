@@ -1,13 +1,13 @@
-; RASTER BARS DEMO
+; RASTER BARS DEMO (ca65)
 ; Creates colorful horizontal bars using raster interrupts
 ; Demonstrates advanced VIC-II timing techniques
 
-* = $0801                      ; BASIC start
+.segment "CODE"
 
 ; BASIC stub: 10 SYS 2064
 .byte $0c,$08,$0a,$00,$9e,$20,$32,$30,$36,$34,$00,$00,$00
 
-* = $0810                      ; Start of ML code
+.org $0810                      ; Start of ML code
 
 init:
         sei                    ; Disable interrupts

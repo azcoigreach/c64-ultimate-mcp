@@ -25,6 +25,7 @@ from mcp.types import (
     LoggingLevel
 )
 import mcp.server.stdio
+from assembler import assemble_source, DEFAULT_ASSEMBLER, SUPPORTED_ASSEMBLERS
 
 # Load environment variables from .env file
 load_dotenv()
@@ -115,34 +116,26 @@ def ftp_upload_file(local_path: str, remote_path: str) -> dict:
 
 def decode_screen_char(byte_val: int) -> str:
     """Decode a C64 screen code byte to ASCII character."""
-    # C64 screen codes (simplified - uppercase letters, numbers, symbols)
-    # 0x00-0x1F = uppercase A-Z (mapped to ASCII)
-    # 0x20-0x3F = symbols and numbers
-    # 0x40-0x5F = special characters
-    # 0x60-0x7F = lowercase (when lowercase mode is on)
-    
-    if 0 <= byte_val <= 25:
-        # Uppercase A-Z
-        return chr(65 + byte_val)
-    elif 26 <= byte_val <= 31:
-        # Additional chars (brackets, etc.)
-        chars = ['[', ']', '{', '}', '|', '~']
-        return chars[byte_val - 26]
-    elif 32 <= byte_val <= 127:
-        # Direct ASCII characters
-        return chr(byte_val)
-    elif 128 <= byte_val <= 153:
-        # Lowercase a-z (128-153 = a-z)
-        return chr(97 + (byte_val - 128))
-    elif 154 <= byte_val <= 159:
-        # Additional chars
-        chars = ['[', ']', '{', '}', '|', '~']
-        return chars[byte_val - 154]
-    elif 160 <= byte_val <= 255:
-        # Reverse video/control codes, display as space
+    # Simplified mapping focused on uppercase letters and common chars.
+    # Screen codes: 1-26 => 'A'-'Z'
+    if 1 <= byte_val <= 26:
+        return chr(64 + byte_val)
+    # Space
+    if byte_val == 32:
         return ' '
-    else:
-        return '?'
+    # Digits and punctuation (approximate for typical ROM charset)
+    if 48 <= byte_val <= 57:  # '0'-'9'
+        return chr(byte_val)
+    # Map codes 32-63 directly where useful
+    if 33 <= byte_val <= 63:
+        return chr(byte_val)
+    # PETSCII uppercase range mirrors ASCII for many values
+    if 64 <= byte_val <= 95:
+        return chr(byte_val - 64)
+    if 96 <= byte_val <= 127:
+        return chr(byte_val - 32)
+    # Fallback
+    return ' '
 
 
 
@@ -267,6 +260,56 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["file"]
+            }
+        ),
+
+        # Assembly (ca65)
+        Tool(
+            name="assemble_asm",
+            description="Assemble 6502/6510 source into a PRG using the configured assembler (default: ca65)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Assembly source code"
+                    },
+                    "load_address": {
+                        "type": "integer",
+                        "description": "Load address for the PRG (e.g., 2049 for $0801)",
+                        "default": 2049
+                    },
+                    "assembler": {
+                        "type": "string",
+                        "description": "Assembler choice (currently supports ca65)",
+                        "enum": sorted(list(SUPPORTED_ASSEMBLERS))
+                    }
+                },
+                "required": ["source"]
+            }
+        ),
+        Tool(
+            name="assemble_and_run_asm",
+            description="Assemble 6502/6510 source and immediately run it on the C64 via DMA (does not store on filesystem)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Assembly source code"
+                    },
+                    "load_address": {
+                        "type": "integer",
+                        "description": "Load address for the PRG (e.g., 2049 for $0801)",
+                        "default": 2049
+                    },
+                    "assembler": {
+                        "type": "string",
+                        "description": "Assembler choice (currently supports ca65)",
+                        "enum": sorted(list(SUPPORTED_ASSEMBLERS))
+                    }
+                },
+                "required": ["source"]
             }
         ),
         
@@ -568,9 +611,11 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             
             # After loading, type RUN into keyboard buffer to execute BASIC programs
             # PETSCII: R=52, U=55, N=4E, RETURN=0D
-            await api_put("/v1/machine:writemem", address="0277", data="5255554E0D")
-            # Set keyboard buffer length to 5
-            await api_put("/v1/machine:writemem", address="00C6", data="05")
+            # Clear keyboard buffer length first
+            await api_put("/v1/machine:writemem", address="00C6", data="00")
+            await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
+            # Set keyboard buffer length to 4 (RUN + RETURN)
+            await api_put("/v1/machine:writemem", address="00C6", data="04")
         elif name == "upload_and_run_prg":
             # Upload via FTP first
             upload_result = ftp_upload_file(arguments["local_path"], arguments["remote_path"])
@@ -582,20 +627,65 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 
                 # After loading, type RUN into keyboard buffer to execute BASIC programs
                 # PETSCII: R=52, U=55, N=4E, RETURN=0D
-                await api_put("/v1/machine:writemem", address="0277", data="5255554E0D")
-                await api_put("/v1/machine:writemem", address="00C6", data="05")
+                await api_put("/v1/machine:writemem", address="00C6", data="00")
+                await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
+                await api_put("/v1/machine:writemem", address="00C6", data="04")
         elif name == "run_prg_from_data":
             data = bytes.fromhex(arguments["data"])
             result = await api_post("/v1/runners:run_prg", data=data)
             
             # After loading, type RUN into keyboard buffer to execute BASIC programs
             # PETSCII: R=52, U=55, N=4E, RETURN=0D
-            await api_put("/v1/machine:writemem", address="0277", data="5255554E0D")
-            await api_put("/v1/machine:writemem", address="00C6", data="05")
+            await api_put("/v1/machine:writemem", address="00C6", data="00")
+            await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
+            await api_put("/v1/machine:writemem", address="00C6", data="04")
         elif name == "run_cartridge":
             # Normalize path: remove leading slash if present
             file_path = arguments["file"].lstrip("/")
             result = await api_put("/v1/runners:run_crt", file=file_path)
+
+        # Assembly (ca65)
+        elif name == "assemble_asm":
+            load_address = int(arguments.get("load_address", 0x0801))
+            assembler_choice = arguments.get("assembler")
+            assembly = assemble_source(
+                arguments["source"],
+                load_address=load_address,
+                assembler=assembler_choice,
+            )
+            result = assembly.__dict__
+        elif name == "assemble_and_run_asm":
+            load_address = int(arguments.get("load_address", 0x0801))
+            assembler_choice = arguments.get("assembler")
+            assembly = assemble_source(
+                arguments["source"],
+                load_address=load_address,
+                assembler=assembler_choice,
+            )
+            if not assembly.success:
+                result = assembly.__dict__
+            elif not assembly.prg_hex:
+                result = {
+                    "errors": ["Assembly succeeded but no PRG data was produced"],
+                    "assembly": assembly.__dict__,
+                }
+            else:
+                prg_bytes = bytes.fromhex(assembly.prg_hex)
+                run_result = await api_post("/v1/runners:run_prg", data=prg_bytes)
+                # After loading, type SYS <addr> + RETURN into keyboard buffer
+                # Target address approximated as load_address + 0x000F (start of ML code when using a BASIC stub)
+                target_addr = load_address + 0x000F
+                sys_str = f"SYS{target_addr}"
+                petscii = sys_str.encode("ascii") + b"\r"
+                # Clear keyboard buffer length before writing
+                await api_put("/v1/machine:writemem", address="00C6", data="00")
+                await api_put("/v1/machine:writemem", address="0277", data=petscii.hex())
+                await api_put("/v1/machine:writemem", address="00C6", data=f"{len(petscii):02x}")
+
+                result = {
+                    "assembly": assembly.__dict__,
+                    "run_result": run_result,
+                }
         
         # Memory Access
         elif name == "write_memory":
