@@ -26,6 +26,11 @@ from mcp.types import (
 )
 import mcp.server.stdio
 from assembler import assemble_source, DEFAULT_ASSEMBLER, SUPPORTED_ASSEMBLERS
+from graphics.converter import (
+    convert_bitmap as graphics_convert_bitmap,
+    convert_sprites as graphics_convert_sprites,
+    analyze_image as graphics_analyze_image,
+)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -577,6 +582,85 @@ async def list_tools() -> list[Tool]:
                 "required": ["local_path", "remote_path"]
             }
         ),
+
+        # Graphics Tools
+        Tool(
+            name="graphics.convert_bitmap",
+            description="Convert an image to C64 bitmap assets (hires or multicolor)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "input_path": {"type": "string"},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["bitmap_hires", "bitmap_multicolor"],
+                        "default": "bitmap_multicolor",
+                    },
+                    "output_dir": {"type": "string"},
+                    "addresses": {"type": "object"},
+                    "dither": {"type": "boolean", "default": False},
+                    "background_color": {"type": "integer"},
+                    "border_color": {"type": "integer"},
+                    "strict": {"type": "boolean", "default": False},
+                    "emit_asm": {"type": "boolean", "default": False},
+                    "emit_basic": {"type": "boolean", "default": False},
+                },
+                "required": ["input_path", "output_dir"],
+            },
+        ),
+        Tool(
+            name="graphics.convert_sprites",
+            description="Convert an image to C64 sprite assets",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "input_path": {"type": "string"},
+                    "sprite_mode": {
+                        "type": "string",
+                        "enum": ["hires", "multicolor"],
+                        "default": "hires",
+                    },
+                    "regions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "x": {"type": "integer"},
+                                "y": {"type": "integer"},
+                                "w": {"type": "integer"},
+                                "h": {"type": "integer"},
+                            },
+                        },
+                    },
+                    "output_dir": {"type": "string"},
+                    "background_color": {"type": "integer"},
+                    "dither": {"type": "boolean", "default": False},
+                    "strict": {"type": "boolean", "default": False},
+                    "emit_asm": {"type": "boolean", "default": False},
+                    "emit_basic": {"type": "boolean", "default": False},
+                },
+                "required": ["input_path", "output_dir"],
+            },
+        ),
+        Tool(
+            name="graphics.analyze",
+            description="Analyze an image against C64 bitmap constraints",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "input_path": {"type": "string"},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["bitmap_hires", "bitmap_multicolor"],
+                        "default": "bitmap_multicolor",
+                    },
+                    "constraints_only": {"type": "boolean", "default": False},
+                    "background_color": {"type": "integer"},
+                    "dither": {"type": "boolean", "default": False},
+                },
+                "required": ["input_path"],
+            },
+        ),
     ]
 
 
@@ -775,6 +859,41 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
         # File Upload
         elif name == "upload_file_ftp":
             result = ftp_upload_file(arguments["local_path"], arguments["remote_path"])
+
+        # Graphics Tools
+        elif name == "graphics.convert_bitmap":
+            result = graphics_convert_bitmap(
+                input_path=arguments["input_path"],
+                mode=arguments.get("mode", "bitmap_multicolor"),
+                output_dir=arguments["output_dir"],
+                addresses=arguments.get("addresses"),
+                dither=arguments.get("dither", False),
+                background_color=arguments.get("background_color"),
+                border_color=arguments.get("border_color"),
+                strict=arguments.get("strict", False),
+                emit_asm=arguments.get("emit_asm", False),
+                emit_basic=arguments.get("emit_basic", False),
+            )
+        elif name == "graphics.convert_sprites":
+            result = graphics_convert_sprites(
+                input_path=arguments["input_path"],
+                sprite_mode=arguments.get("sprite_mode", "hires"),
+                output_dir=arguments["output_dir"],
+                regions=arguments.get("regions"),
+                background_color=arguments.get("background_color"),
+                dither=arguments.get("dither", False),
+                strict=arguments.get("strict", False),
+                emit_asm=arguments.get("emit_asm", False),
+                emit_basic=arguments.get("emit_basic", False),
+            )
+        elif name == "graphics.analyze":
+            result = graphics_analyze_image(
+                input_path=arguments["input_path"],
+                mode=arguments.get("mode", "bitmap_multicolor"),
+                constraints_only=arguments.get("constraints_only", False),
+                background_color=arguments.get("background_color"),
+                dither=arguments.get("dither", False),
+            )
         
         else:
             raise ValueError(f"Unknown tool: {name}")
