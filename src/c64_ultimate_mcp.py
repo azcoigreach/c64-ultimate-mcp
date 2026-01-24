@@ -674,7 +674,7 @@ async def list_tools() -> list[Tool]:
 
         # Graphics Tools
         Tool(
-            name="graphics.convert_bitmap",
+            name="graphics_convert_bitmap",
             description="Convert an image to C64 bitmap assets (hires or multicolor)",
             inputSchema={
                 "type": "object",
@@ -698,7 +698,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="graphics.convert_sprites",
+            name="graphics_convert_sprites",
             description="Convert an image to C64 sprite assets",
             inputSchema={
                 "type": "object",
@@ -732,7 +732,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="graphics.analyze",
+            name="graphics_analyze",
             description="Analyze an image against C64 bitmap constraints",
             inputSchema={
                 "type": "object",
@@ -749,6 +749,7 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["input_path"],
             },
+        ),
         # BASIC Tokenization
         Tool(
             name="tokenize_basic",
@@ -762,38 +763,6 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["source"]
-            }
-        ),
-        Tool(
-            name="tokenize_and_run_basic",
-            description="Tokenize BASIC source and run it on the C64 via DMA (no filesystem)",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "source": {
-                        "type": "string",
-                        "description": "BASIC source code (with line numbers)"
-                    }
-                },
-                "required": ["source"]
-            }
-        ),
-        Tool(
-            name="tokenize_upload_and_run_basic",
-            description="Tokenize BASIC source, upload as PRG via FTP, then run it",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "source": {
-                        "type": "string",
-                        "description": "BASIC source code (with line numbers)"
-                    },
-                    "remote_path": {
-                        "type": "string",
-                        "description": "Remote path to store PRG on Ultimate filesystem"
-                    }
-                },
-                "required": ["source", "remote_path"]
             }
         ),
     ]
@@ -1000,7 +969,7 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             result = ftp_upload_file(arguments["local_path"], arguments["remote_path"])
 
         # Graphics Tools
-        elif name == "graphics.convert_bitmap":
+        elif name == "graphics_convert_bitmap":
             result = graphics_convert_bitmap(
                 input_path=arguments["input_path"],
                 mode=arguments.get("mode", "bitmap_multicolor"),
@@ -1013,7 +982,7 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 emit_asm=arguments.get("emit_asm", False),
                 emit_basic=arguments.get("emit_basic", False),
             )
-        elif name == "graphics.convert_sprites":
+        elif name == "graphics_convert_sprites":
             result = graphics_convert_sprites(
                 input_path=arguments["input_path"],
                 sprite_mode=arguments.get("sprite_mode", "hires"),
@@ -1025,7 +994,7 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 emit_asm=arguments.get("emit_asm", False),
                 emit_basic=arguments.get("emit_basic", False),
             )
-        elif name == "graphics.analyze":
+        elif name == "graphics_analyze":
             result = graphics_analyze_image(
                 input_path=arguments["input_path"],
                 mode=arguments.get("mode", "bitmap_multicolor"),
@@ -1040,30 +1009,6 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 "prg_hex": prg_bytes.hex(),
                 "size": len(prg_bytes),
             }
-        elif name == "tokenize_and_run_basic":
-            tokenizer = BasicTokenizer()
-            prg_bytes = tokenizer.tokenize_basic(arguments["source"])
-            result = await api_post("/v1/runners:run_prg", data=prg_bytes)
-            # After loading, type RUN into keyboard buffer to execute BASIC programs
-            await api_put("/v1/machine:writemem", address="00C6", data="00")
-            await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
-            await api_put("/v1/machine:writemem", address="00C6", data="04")
-        elif name == "tokenize_upload_and_run_basic":
-            tokenizer = BasicTokenizer()
-            prg_bytes = tokenizer.tokenize_basic(arguments["source"])
-            remote_path = arguments["remote_path"]
-            tmp_name = f"/tmp/c64-tokenized-{abs(hash(remote_path))}.prg"
-            with open(tmp_name, "wb") as f:
-                f.write(prg_bytes)
-            upload_result = ftp_upload_file(tmp_name, remote_path)
-            if "errors" in upload_result:
-                result = upload_result
-            else:
-                result = await api_put("/v1/runners:run_prg", file=remote_path)
-                # After loading, type RUN into keyboard buffer to execute BASIC programs
-                await api_put("/v1/machine:writemem", address="00C6", data="00")
-                await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
-                await api_put("/v1/machine:writemem", address="00C6", data="04")
         
         else:
             raise ValueError(f"Unknown tool: {name}")
