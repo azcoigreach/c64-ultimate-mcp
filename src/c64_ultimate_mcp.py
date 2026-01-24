@@ -33,9 +33,11 @@ from graphics.converter import (
     convert_sprites as graphics_convert_sprites,
     analyze_image as graphics_analyze_image,
 )
+from tokenizer import BasicTokenizer
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file (explicit path for reliability)
+_env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+load_dotenv(os.path.abspath(_env_path), override=False)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +55,9 @@ C64_FTP_PASS = os.getenv("C64_ULTIMATE_FTP_PASS", "")
 
 # HTTP client for REST API calls
 http_client = httpx.AsyncClient(timeout=30.0)
+
+# FTP timeout (seconds)
+FTP_TIMEOUT = 10
 
 
 def format_url(path: str, **params) -> str:
@@ -110,15 +115,18 @@ async def api_post(path: str, data: Optional[bytes] = None, content_type: str = 
 
 def ftp_upload_file(local_path: str, remote_path: str) -> dict:
     """Upload a file via FTP to the C64 Ultimate."""
+    if not os.path.exists(local_path):
+        return {"errors": [f"Local file not found: {local_path}"]}
     try:
-        with FTP(C64_FTP_HOST) as ftp:
+        with FTP(C64_FTP_HOST, timeout=FTP_TIMEOUT) as ftp:
             ftp.login(C64_FTP_USER, C64_FTP_PASS)
+            ftp.sock.settimeout(FTP_TIMEOUT)
             with open(local_path, 'rb') as f:
                 ftp.storbinary(f'STOR {remote_path}', f)
         return {"success": True, "message": f"Uploaded {local_path} to {remote_path}"}
     except Exception as e:
         logger.error(f"FTP upload error: {e}")
-        return {"errors": [str(e)]}
+        return {"errors": [str(e)], "error_type": type(e).__name__}
 
 
 def ftp_upload_data(data: bytes, remote_path: str) -> dict:
@@ -741,6 +749,52 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["input_path"],
             },
+        # BASIC Tokenization
+        Tool(
+            name="tokenize_basic",
+            description="Tokenize C64 BASIC V2 source into a PRG (hex-encoded)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "BASIC source code (with line numbers)"
+                    }
+                },
+                "required": ["source"]
+            }
+        ),
+        Tool(
+            name="tokenize_and_run_basic",
+            description="Tokenize BASIC source and run it on the C64 via DMA (no filesystem)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "BASIC source code (with line numbers)"
+                    }
+                },
+                "required": ["source"]
+            }
+        ),
+        Tool(
+            name="tokenize_upload_and_run_basic",
+            description="Tokenize BASIC source, upload as PRG via FTP, then run it",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "BASIC source code (with line numbers)"
+                    },
+                    "remote_path": {
+                        "type": "string",
+                        "description": "Remote path to store PRG on Ultimate filesystem"
+                    }
+                },
+                "required": ["source", "remote_path"]
+            }
         ),
     ]
 
@@ -979,6 +1033,37 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 background_color=arguments.get("background_color"),
                 dither=arguments.get("dither", False),
             )
+        elif name == "tokenize_basic":
+            tokenizer = BasicTokenizer()
+            prg_bytes = tokenizer.tokenize_basic(arguments["source"])
+            result = {
+                "prg_hex": prg_bytes.hex(),
+                "size": len(prg_bytes),
+            }
+        elif name == "tokenize_and_run_basic":
+            tokenizer = BasicTokenizer()
+            prg_bytes = tokenizer.tokenize_basic(arguments["source"])
+            result = await api_post("/v1/runners:run_prg", data=prg_bytes)
+            # After loading, type RUN into keyboard buffer to execute BASIC programs
+            await api_put("/v1/machine:writemem", address="00C6", data="00")
+            await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
+            await api_put("/v1/machine:writemem", address="00C6", data="04")
+        elif name == "tokenize_upload_and_run_basic":
+            tokenizer = BasicTokenizer()
+            prg_bytes = tokenizer.tokenize_basic(arguments["source"])
+            remote_path = arguments["remote_path"]
+            tmp_name = f"/tmp/c64-tokenized-{abs(hash(remote_path))}.prg"
+            with open(tmp_name, "wb") as f:
+                f.write(prg_bytes)
+            upload_result = ftp_upload_file(tmp_name, remote_path)
+            if "errors" in upload_result:
+                result = upload_result
+            else:
+                result = await api_put("/v1/runners:run_prg", file=remote_path)
+                # After loading, type RUN into keyboard buffer to execute BASIC programs
+                await api_put("/v1/machine:writemem", address="00C6", data="00")
+                await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
+                await api_put("/v1/machine:writemem", address="00C6", data="04")
         
         else:
             raise ValueError(f"Unknown tool: {name}")

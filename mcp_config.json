@@ -4,11 +4,7 @@
       "command": "/home/azcoigreach/repos/c64-ultimate-mcp/.venv/bin/python",
       "args": [
         "/home/azcoigreach/repos/c64-ultimate-mcp/src/c64_ultimate_mcp.py"
-      ],
-      "env": {
-        "C64_ULTIMATE_HOST": "10.45.42.23",
-        "C64_ULTIMATE_FTP_HOST": "10.45.42.23"
-      }
+      ]
     }
   }
 }
