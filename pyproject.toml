@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "c64-ultimate-mcp"
-version = "0.2.0"
+version = "0.2.1"
 description = "Model Context Protocol server for Commodore 64 Ultimate development"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,6 +27,7 @@ dependencies = [
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
     "pillow>=10.0.0",
+    "c64img>=3.5",
 ]
 
 [project.urls]
@@ -39,8 +40,6 @@ Issues = "https://github.com/azcoigreach/c64-ultimate-mcp/issues"
 c64-ultimate-mcp = "c64_ultimate_mcp:main"
 c64-ultimate-mcp-graphics = "graphics.cli:main"[tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = ["c64_ultimate_mcp", "assembler", "tokenizer"]
-
-[tool.setuptools.packages.find]
+py-modules = ["c64_ultimate_mcp", "assembler", "tokenizer"][tool.setuptools.packages.find]
 where = ["src"]
 include = ["graphics*"]

@@ -37,7 +37,7 @@ Model Context Protocol (MCP) server for developing on the Commodore 64 Ultimate 
 - Full filesystem access
 
 ### 🖼️ Graphics Tools
-- Convert PNG/JPG/BMP to C64 bitmap assets (hires or multicolor)
+- Convert PNG/JPG/BMP to C64 bitmap assets (hires or multicolor) via `c64img`
 - Extract sprite assets from images
 - Generate ASM includes or BASIC loaders (optional)
 - Palette and constraint analysis with reports
@@ -200,6 +200,8 @@ python -m graphics convert-bitmap \
   --mode bitmap_multicolor \
   --emit-asm
 ```
+
+Note: bitmap conversion uses `c64img` for palette handling; the `--dither` flag is currently ignored.
 
 Emitted files:
 - `bitmap.bin` (8000 bytes)

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+import tempfile
+from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
+from c64img.hires import HiresConverter
+from c64img.multi import MultiConverter
 
 from .constants import BITMAP_MODES, DEFAULT_ADDRESSES, SPRITE_MODES, VIC_II_PALETTE
-from .encoders.bitmap_hires import encode_bitmap_hires
-from .encoders.bitmap_multicolor import encode_bitmap_multicolor
 from .encoders.sprite import encode_sprite_hires, encode_sprite_multicolor
 from .manifest import Manifest
 from .palette import map_image_to_palette
@@ -49,6 +50,77 @@ def _default_background(indices: List[int]) -> int:
     for idx in indices:
         counts[idx] = counts.get(idx, 0) + 1
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
+def _palette_from_bitmap_data(
+    mode: str,
+    screen: bytes,
+    color: bytes,
+    background_color: Optional[int],
+) -> List[int]:
+    colors = set()
+    for byte_val in screen:
+        colors.add(byte_val & 0x0F)
+        colors.add((byte_val >> 4) & 0x0F)
+    if mode == "bitmap_multicolor":
+        for byte_val in color:
+            colors.add(byte_val & 0x0F)
+        if background_color is not None:
+            colors.add(background_color)
+    return sorted(colors)
+
+
+def _write_binary(path: str, data: bytes) -> None:
+    with open(path, "wb") as handle:
+        handle.write(data)
+
+
+def _c64img_convert_bitmap(
+    image: Image.Image,
+    mode: str,
+    background_color: Optional[int],
+    border_color: Optional[int],
+    strict: bool,
+) -> Tuple[bytes, bytes, bytes, Optional[int]]:
+    converter_class = HiresConverter if mode == "bitmap_hires" else MultiConverter
+    errors_action = "none" if strict else "fix"
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        input_path = os.path.join(temp_dir, "input.png")
+        image.save(input_path, format="PNG")
+
+        converter = converter_class(input_path, errors_action=errors_action)
+        if border_color is not None:
+            converter.set_border_color(border_color)
+        if background_color is not None:
+            converter.set_bg_color(background_color)
+
+        output_prefix = os.path.join(temp_dir, "output")
+        result_code = converter.save(output_prefix, "raw")
+        if result_code != 0:
+            raise ValueError("c64img conversion failed; check dimensions or color clashes.")
+
+        bitmap = _read_binary(output_prefix + "_bitmap.raw")
+        screen = _read_binary(output_prefix + "_screen.raw")
+
+        if mode == "bitmap_multicolor":
+            color = _read_binary(output_prefix + "_color-ram.raw")
+            bg_path = output_prefix + "_bg.raw"
+            if os.path.exists(bg_path):
+                bg_data = _read_binary(bg_path)
+                background = bg_data[0] if bg_data else 0
+            else:
+                background = background_color if background_color is not None else 0
+        else:
+            color = bytes(1000)
+            background = background_color
+
+    return bitmap, screen, color, background
+
+
+def _read_binary(path: str) -> bytes:
+    with open(path, "rb") as handle:
+        return handle.read()
 
 
 def _vic_registers_for_bitmap(
@@ -98,55 +170,37 @@ def convert_bitmap(
     image = _load_image(input_path)
     target = BITMAP_MODES[mode]
     image = _resize_image(image, target["width"], target["height"])
-    indices, width, height = map_image_to_palette(image, dither=dither)
-    palette_used = _palette_used(indices)
-    background = background_color if background_color is not None else _default_background(indices)
 
-    if mode == "bitmap_multicolor":
-        result = encode_bitmap_multicolor(
-            indices,
-            width,
-            height,
-            background_color=background,
-            strict=strict,
-        )
-        bitmap = result.bitmap
-        screen = result.screen
-        color = result.color
-        conflicts = result.conflicts
-        fixed_cells = result.fixed_cells
-    else:
-        result = encode_bitmap_hires(
-            indices,
-            width,
-            height,
-            strict=strict,
-        )
-        bitmap = result.bitmap
-        screen = result.screen
-        color = result.color
-        conflicts = result.conflicts
-        fixed_cells = result.fixed_cells
+    bitmap, screen, color, background = _c64img_convert_bitmap(
+        image=image,
+        mode=mode,
+        background_color=background_color,
+        border_color=border_color,
+        strict=strict,
+    )
+    palette_used = _palette_from_bitmap_data(mode, screen, color, background)
+    conflicts: List[Dict[str, Any]] = []
+    fixed_cells = 0
 
     _ensure_output_dir(output_dir)
     bitmap_path = os.path.join(output_dir, "bitmap.bin")
     screen_path = os.path.join(output_dir, "screen.bin")
     color_path = os.path.join(output_dir, "color.bin")
-    with open(bitmap_path, "wb") as handle:
-        handle.write(bitmap)
-    with open(screen_path, "wb") as handle:
-        handle.write(screen)
-    with open(color_path, "wb") as handle:
-        handle.write(color)
+    _write_binary(bitmap_path, bitmap)
+    _write_binary(screen_path, screen)
+    _write_binary(color_path, color)
 
     report = {
         "mode": mode,
-        "image_size": [width, height],
+        "image_size": [target["width"], target["height"]],
         "palette_used": palette_used,
         "background_color": background,
         "conflicts": conflicts,
         "fixed_cells": fixed_cells,
+        "conversion": "c64img",
     }
+    if dither:
+        report["notes"] = "dither flag ignored; c64img handles palette conversion."
     report_json = serialize_report_json(report)
     report_text = build_report_text(report)
     report_json_path = os.path.join(output_dir, "report.json")
@@ -155,6 +209,10 @@ def convert_bitmap(
     _write_text(report_txt_path, report_text)
 
     vic_registers = _vic_registers_for_bitmap(mode, addr)
+    notes = "color.bin uses low nibble for color RAM values."
+    if mode == "bitmap_hires":
+        notes = "color.bin unused for hires; screen.bin stores both colors."
+
     manifest = Manifest(
         mode=mode,
         addresses=addr,
@@ -173,7 +231,7 @@ def convert_bitmap(
             "color_ram_nibble": "low",
         },
         vic_registers=vic_registers,
-        notes="color.bin uses low nibble for color RAM values.",
+        notes=notes,
     )
     manifest_path = os.path.join(output_dir, "manifest.json")
     _write_text(manifest_path, json.dumps(manifest.to_dict(), indent=2))
@@ -220,37 +278,29 @@ def analyze_image(
     target = BITMAP_MODES[mode]
     image = _load_image(input_path)
     image = _resize_image(image, target["width"], target["height"])
-    indices, width, height = map_image_to_palette(image, dither=dither)
-    background = background_color if background_color is not None else _default_background(indices)
 
-    if mode == "bitmap_multicolor":
-        result = encode_bitmap_multicolor(
-            indices,
-            width,
-            height,
-            background_color=background,
-            strict=False,
-        )
-        conflicts = result.conflicts
-        fixed_cells = result.fixed_cells
-    else:
-        result = encode_bitmap_hires(
-            indices,
-            width,
-            height,
-            strict=False,
-        )
-        conflicts = result.conflicts
-        fixed_cells = result.fixed_cells
+    bitmap, screen, color, background = _c64img_convert_bitmap(
+        image=image,
+        mode=mode,
+        background_color=background_color,
+        border_color=None,
+        strict=False,
+    )
+    palette_used = _palette_from_bitmap_data(mode, screen, color, background)
+    conflicts: List[Dict[str, Any]] = []
+    fixed_cells = 0
 
     report = {
         "mode": mode,
-        "image_size": [width, height],
-        "palette_used": [] if constraints_only else _palette_used(indices),
+        "image_size": [target["width"], target["height"]],
+        "palette_used": [] if constraints_only else palette_used,
         "background_color": background,
         "conflicts": conflicts,
         "fixed_cells": fixed_cells,
+        "conversion": "c64img",
     }
+    if dither:
+        report["notes"] = "dither flag ignored; c64img handles palette conversion."
     return {
         "report": report,
         "report_text": build_report_text(report),

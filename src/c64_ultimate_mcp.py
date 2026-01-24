@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import sys
+from io import BytesIO
+from pathlib import Path
 from typing import Any, Optional, Sequence
 from urllib.parse import quote, urljoin
 
@@ -117,6 +119,49 @@ def ftp_upload_file(local_path: str, remote_path: str) -> dict:
     except Exception as e:
         logger.error(f"FTP upload error: {e}")
         return {"errors": [str(e)]}
+
+
+def ftp_upload_data(data: bytes, remote_path: str) -> dict:
+    """Upload raw bytes to the Ultimate filesystem via FTP."""
+    try:
+        with FTP(C64_FTP_HOST) as ftp:
+            ftp.login(C64_FTP_USER, C64_FTP_PASS)
+            with BytesIO(data) as bio:
+                ftp.storbinary(f'STOR {remote_path}', bio)
+        return {"success": True, "message": f"Uploaded {len(data)} bytes to {remote_path}"}
+    except Exception as e:
+        logger.error(f"FTP upload error: {e}")
+        return {"errors": [str(e)]}
+
+
+def write_prg_from_hex(hex_string: str, local_path: str) -> dict:
+    """Convert hex-encoded PRG data to binary and write it to disk."""
+    try:
+        data = bytes.fromhex(hex_string)
+    except ValueError as e:
+        logger.error(f"Invalid hex string: {e}")
+        return {"errors": [f"Invalid hex string: {e}"]}
+
+    try:
+        path = Path(local_path)
+        if path.parent:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return {"success": True, "path": local_path, "bytes_written": len(data)}
+    except Exception as e:
+        logger.error(f"Failed to write PRG: {e}")
+        return {"errors": [str(e)]}
+
+
+def upload_prg_from_hex(hex_string: str, remote_path: str) -> dict:
+    """Convert hex-encoded PRG data to binary and upload it via FTP."""
+    try:
+        data = bytes.fromhex(hex_string)
+    except ValueError as e:
+        logger.error(f"Invalid hex string: {e}")
+        return {"errors": [f"Invalid hex string: {e}"]}
+
+    return ftp_upload_data(data, remote_path)
 
 
 def decode_screen_char(byte_val: int) -> str:
@@ -251,6 +296,42 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["data"]
+            }
+        ),
+        Tool(
+            name="write_prg_from_hex",
+            description="Write hex-encoded PRG data to a local file",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "hex_string": {
+                        "type": "string",
+                        "description": "Hex-encoded PRG data"
+                    },
+                    "local_path": {
+                        "type": "string",
+                        "description": "Local filesystem path where the PRG should be written"
+                    }
+                },
+                "required": ["hex_string", "local_path"]
+            }
+        ),
+        Tool(
+            name="upload_prg_from_hex",
+            description="Convert hex-encoded PRG data to binary and upload it via FTP",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "hex_string": {
+                        "type": "string",
+                        "description": "Hex-encoded PRG data"
+                    },
+                    "remote_path": {
+                        "type": "string",
+                        "description": "Remote path on Ultimate filesystem where file will be uploaded"
+                    }
+                },
+                "required": ["hex_string", "remote_path"]
             }
         ),
         Tool(
@@ -723,6 +804,10 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             await api_put("/v1/machine:writemem", address="00C6", data="00")
             await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
             await api_put("/v1/machine:writemem", address="00C6", data="04")
+        elif name == "write_prg_from_hex":
+            result = write_prg_from_hex(arguments["hex_string"], arguments["local_path"])
+        elif name == "upload_prg_from_hex":
+            result = upload_prg_from_hex(arguments["hex_string"], arguments["remote_path"])
         elif name == "run_cartridge":
             # Normalize path: remove leading slash if present
             file_path = arguments["file"].lstrip("/")
