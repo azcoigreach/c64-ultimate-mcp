@@ -36,6 +36,12 @@ Model Context Protocol (MCP) server for developing on the Commodore 64 Ultimate 
 - Create D64, D71, and D81 disk images
 - Full filesystem access
 
+### 🖼️ Graphics Tools
+- Convert PNG/JPG/BMP to C64 bitmap assets (hires or multicolor) via `c64img`
+- Extract sprite assets from images
+- Generate ASM includes or BASIC loaders (optional)
+- Palette and constraint analysis with reports
+
 ## Installation
 
 1. Clone this repository:
@@ -154,6 +160,11 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
 ### File Operations
 - `upload_file_ftp` - Upload file via FTP
 
+### Graphics Tools
+- `graphics.convert_bitmap` - Convert image to bitmap assets + manifest/report
+- `graphics.convert_sprites` - Convert image to sprite assets
+- `graphics.analyze` - Report per-cell color conflicts
+
 ## Example Workflows
 
 ### Quick Test - Change Screen Colors
@@ -179,6 +190,65 @@ Use assemble_and_run_asm:
 Returns assembly diagnostics plus the run result. For a PRG without auto-run BASIC stub, add your own stub or inject `SYS` via keyboard buffer.
 
 Examples in `examples/*.asm` are now ca65-compatible.
+
+## Graphics Tools
+
+### Convert image to multicolor bitmap assets
+```bash
+python -m graphics convert-bitmap \
+  ./examples/title.png ./build/title_bitmap \
+  --mode bitmap_multicolor \
+  --emit-asm
+```
+
+Note: bitmap conversion uses `c64img` for palette handling; the `--dither` flag is currently ignored.
+
+Emitted files:
+- `bitmap.bin` (8000 bytes)
+- `screen.bin` (1000 bytes)
+- `color.bin` (1000 bytes, low nibble = color RAM)
+- `manifest.json` + `report.json`/`report.txt`
+- Optional `bitmap.inc` for ASM integration
+
+### Include emitted assets in an assembly project (ca65)
+```asm
+    .include "build/title_bitmap/bitmap.inc"
+```
+
+### BASIC loader example
+```bash
+python -m graphics convert-bitmap \
+  ./examples/title.png ./build/title_bitmap \
+  --mode bitmap_multicolor \
+  --emit-basic
+```
+
+### Sprite extraction
+```bash
+python -m graphics convert-sprites \
+  ./examples/sprites.png ./build/sprites \
+  --sprite-mode multicolor
+```
+
+### MCP JSON usage
+```json
+{
+  "tool": "graphics.convert_bitmap",
+  "arguments": {
+    "input_path": "/path/to/image.png",
+    "mode": "bitmap_multicolor",
+    "output_dir": "/path/to/output",
+    "dither": false,
+    "emit_asm": true
+  }
+}
+```
+
+### Defaults and memory layout
+- Bitmap: `$2000`
+- Screen RAM: `$0400`
+- Color RAM: `$D800`
+- Sprites: `$3000`
 
 ### Develop and Run a Program
 1. Write your BASIC or assembly program locally

@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import sys
+from io import BytesIO
+from pathlib import Path
 from typing import Any, Optional, Sequence
 from urllib.parse import quote, urljoin
 
@@ -26,6 +28,11 @@ from mcp.types import (
 )
 import mcp.server.stdio
 from assembler import assemble_source, DEFAULT_ASSEMBLER, SUPPORTED_ASSEMBLERS
+from graphics.converter import (
+    convert_bitmap as graphics_convert_bitmap,
+    convert_sprites as graphics_convert_sprites,
+    analyze_image as graphics_analyze_image,
+)
 from tokenizer import BasicTokenizer
 
 # Load environment variables from .env file (explicit path for reliability)
@@ -120,6 +127,49 @@ def ftp_upload_file(local_path: str, remote_path: str) -> dict:
     except Exception as e:
         logger.error(f"FTP upload error: {e}")
         return {"errors": [str(e)], "error_type": type(e).__name__}
+
+
+def ftp_upload_data(data: bytes, remote_path: str) -> dict:
+    """Upload raw bytes to the Ultimate filesystem via FTP."""
+    try:
+        with FTP(C64_FTP_HOST) as ftp:
+            ftp.login(C64_FTP_USER, C64_FTP_PASS)
+            with BytesIO(data) as bio:
+                ftp.storbinary(f'STOR {remote_path}', bio)
+        return {"success": True, "message": f"Uploaded {len(data)} bytes to {remote_path}"}
+    except Exception as e:
+        logger.error(f"FTP upload error: {e}")
+        return {"errors": [str(e)]}
+
+
+def write_prg_from_hex(hex_string: str, local_path: str) -> dict:
+    """Convert hex-encoded PRG data to binary and write it to disk."""
+    try:
+        data = bytes.fromhex(hex_string)
+    except ValueError as e:
+        logger.error(f"Invalid hex string: {e}")
+        return {"errors": [f"Invalid hex string: {e}"]}
+
+    try:
+        path = Path(local_path)
+        if path.parent:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return {"success": True, "path": local_path, "bytes_written": len(data)}
+    except Exception as e:
+        logger.error(f"Failed to write PRG: {e}")
+        return {"errors": [str(e)]}
+
+
+def upload_prg_from_hex(hex_string: str, remote_path: str) -> dict:
+    """Convert hex-encoded PRG data to binary and upload it via FTP."""
+    try:
+        data = bytes.fromhex(hex_string)
+    except ValueError as e:
+        logger.error(f"Invalid hex string: {e}")
+        return {"errors": [f"Invalid hex string: {e}"]}
+
+    return ftp_upload_data(data, remote_path)
 
 
 def decode_screen_char(byte_val: int) -> str:
@@ -254,6 +304,42 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["data"]
+            }
+        ),
+        Tool(
+            name="write_prg_from_hex",
+            description="Write hex-encoded PRG data to a local file",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "hex_string": {
+                        "type": "string",
+                        "description": "Hex-encoded PRG data"
+                    },
+                    "local_path": {
+                        "type": "string",
+                        "description": "Local filesystem path where the PRG should be written"
+                    }
+                },
+                "required": ["hex_string", "local_path"]
+            }
+        ),
+        Tool(
+            name="upload_prg_from_hex",
+            description="Convert hex-encoded PRG data to binary and upload it via FTP",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "hex_string": {
+                        "type": "string",
+                        "description": "Hex-encoded PRG data"
+                    },
+                    "remote_path": {
+                        "type": "string",
+                        "description": "Remote path on Ultimate filesystem where file will be uploaded"
+                    }
+                },
+                "required": ["hex_string", "remote_path"]
             }
         ),
         Tool(
@@ -585,6 +671,84 @@ async def list_tools() -> list[Tool]:
                 "required": ["local_path", "remote_path"]
             }
         ),
+
+        # Graphics Tools
+        Tool(
+            name="graphics.convert_bitmap",
+            description="Convert an image to C64 bitmap assets (hires or multicolor)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "input_path": {"type": "string"},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["bitmap_hires", "bitmap_multicolor"],
+                        "default": "bitmap_multicolor",
+                    },
+                    "output_dir": {"type": "string"},
+                    "addresses": {"type": "object"},
+                    "dither": {"type": "boolean", "default": False},
+                    "background_color": {"type": "integer"},
+                    "border_color": {"type": "integer"},
+                    "strict": {"type": "boolean", "default": False},
+                    "emit_asm": {"type": "boolean", "default": False},
+                    "emit_basic": {"type": "boolean", "default": False},
+                },
+                "required": ["input_path", "output_dir"],
+            },
+        ),
+        Tool(
+            name="graphics.convert_sprites",
+            description="Convert an image to C64 sprite assets",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "input_path": {"type": "string"},
+                    "sprite_mode": {
+                        "type": "string",
+                        "enum": ["hires", "multicolor"],
+                        "default": "hires",
+                    },
+                    "regions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "x": {"type": "integer"},
+                                "y": {"type": "integer"},
+                                "w": {"type": "integer"},
+                                "h": {"type": "integer"},
+                            },
+                        },
+                    },
+                    "output_dir": {"type": "string"},
+                    "background_color": {"type": "integer"},
+                    "dither": {"type": "boolean", "default": False},
+                    "strict": {"type": "boolean", "default": False},
+                    "emit_asm": {"type": "boolean", "default": False},
+                    "emit_basic": {"type": "boolean", "default": False},
+                },
+                "required": ["input_path", "output_dir"],
+            },
+        ),
+        Tool(
+            name="graphics.analyze",
+            description="Analyze an image against C64 bitmap constraints",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "input_path": {"type": "string"},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["bitmap_hires", "bitmap_multicolor"],
+                        "default": "bitmap_multicolor",
+                    },
+                    "constraints_only": {"type": "boolean", "default": False},
+                    "background_color": {"type": "integer"},
+                    "dither": {"type": "boolean", "default": False},
+                },
+                "required": ["input_path"],
+            },
         # BASIC Tokenization
         Tool(
             name="tokenize_basic",
@@ -694,6 +858,10 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             await api_put("/v1/machine:writemem", address="00C6", data="00")
             await api_put("/v1/machine:writemem", address="0277", data="52554E0D")
             await api_put("/v1/machine:writemem", address="00C6", data="04")
+        elif name == "write_prg_from_hex":
+            result = write_prg_from_hex(arguments["hex_string"], arguments["local_path"])
+        elif name == "upload_prg_from_hex":
+            result = upload_prg_from_hex(arguments["hex_string"], arguments["remote_path"])
         elif name == "run_cartridge":
             # Normalize path: remove leading slash if present
             file_path = arguments["file"].lstrip("/")
@@ -830,6 +998,41 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
         # File Upload
         elif name == "upload_file_ftp":
             result = ftp_upload_file(arguments["local_path"], arguments["remote_path"])
+
+        # Graphics Tools
+        elif name == "graphics.convert_bitmap":
+            result = graphics_convert_bitmap(
+                input_path=arguments["input_path"],
+                mode=arguments.get("mode", "bitmap_multicolor"),
+                output_dir=arguments["output_dir"],
+                addresses=arguments.get("addresses"),
+                dither=arguments.get("dither", False),
+                background_color=arguments.get("background_color"),
+                border_color=arguments.get("border_color"),
+                strict=arguments.get("strict", False),
+                emit_asm=arguments.get("emit_asm", False),
+                emit_basic=arguments.get("emit_basic", False),
+            )
+        elif name == "graphics.convert_sprites":
+            result = graphics_convert_sprites(
+                input_path=arguments["input_path"],
+                sprite_mode=arguments.get("sprite_mode", "hires"),
+                output_dir=arguments["output_dir"],
+                regions=arguments.get("regions"),
+                background_color=arguments.get("background_color"),
+                dither=arguments.get("dither", False),
+                strict=arguments.get("strict", False),
+                emit_asm=arguments.get("emit_asm", False),
+                emit_basic=arguments.get("emit_basic", False),
+            )
+        elif name == "graphics.analyze":
+            result = graphics_analyze_image(
+                input_path=arguments["input_path"],
+                mode=arguments.get("mode", "bitmap_multicolor"),
+                constraints_only=arguments.get("constraints_only", False),
+                background_color=arguments.get("background_color"),
+                dither=arguments.get("dither", False),
+            )
         elif name == "tokenize_basic":
             tokenizer = BasicTokenizer()
             prg_bytes = tokenizer.tokenize_basic(arguments["source"])
