@@ -37,7 +37,7 @@ Model Context Protocol (MCP) server for developing on the Commodore 64 Ultimate 
 - Full filesystem access
 
 ### 🖼️ Graphics Tools
-- Convert PNG/JPG/BMP to C64 bitmap assets (hires or multicolor) via `c64img`
+- Convert PNG/JPG/BMP to C64 bitmap assets (hires or multicolor)
 - Extract sprite assets from images
 - Generate ASM includes or BASIC loaders (optional)
 - Palette and constraint analysis with reports
@@ -61,8 +61,8 @@ pip install -r requirements.txt
 ```bash
 # Create .env and set your device IP
 cat > .env << 'EOF'
-C64_ULTIMATE_HOST=10.45.42.23
-C64_ULTIMATE_FTP_HOST=10.45.42.23
+C64_ULTIMATE_HOST=
+C64_ULTIMATE_FTP_HOST=
 C64_ULTIMATE_FTP_USER=anonymous
 C64_ULTIMATE_FTP_PASS=
 EOF
@@ -72,7 +72,7 @@ EOF
 
 Set the following environment variables (or use `.env` file):
 
-- `C64_ULTIMATE_HOST` - IP address or hostname of your C64 Ultimate (e.g., 10.45.42.23)
+- `C64_ULTIMATE_HOST` - IP address or hostname of your C64 Ultimate 
 - `C64_ULTIMATE_FTP_HOST` - FTP server address (usually same as host)
 - `C64_ULTIMATE_FTP_USER` - FTP username (default: anonymous)
 - `C64_ULTIMATE_FTP_PASS` - FTP password (default: empty)
@@ -106,7 +106,7 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
         "/home/azcoigreach/repos/c64-ultimate-mcp/src/c64_ultimate_mcp.py"
       ],
       "env": {
-        "C64_ULTIMATE_HOST": "10.45.42.23"
+        "C64_ULTIMATE_HOST": ""
       }
     }
   }
@@ -200,8 +200,6 @@ python -m graphics convert-bitmap \
   --mode bitmap_multicolor \
   --emit-asm
 ```
-
-Note: bitmap conversion uses `c64img` for palette handling; the `--dither` flag is currently ignored.
 
 Emitted files:
 - `bitmap.bin` (8000 bytes)

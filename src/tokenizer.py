@@ -118,6 +118,16 @@ class BasicTokenizer:
             end_ok = False
         return start_ok and end_ok
 
+    def _char_to_byte(self, ch: str, context: str = "") -> int:
+        """Convert character to byte value, validating it's in valid range."""
+        code = ord(ch)
+        if code > 255:
+            raise ValueError(
+                f"Character '{ch}' (Unicode U+{code:04X}) is not valid for C64 BASIC. "
+                f"Only ASCII/PETSCII characters (0-255) are supported. {context}"
+            )
+        return code
+
     def tokenize_line(self, content: str) -> bytearray:
         tokens = bytearray()
         i = 0
@@ -127,7 +137,10 @@ class BasicTokenizer:
             ch = content[i]
 
             if in_string:
-                tokens.append(ord(ch))
+                try:
+                    tokens.append(self._char_to_byte(ch, "(in string literal)"))
+                except ValueError as e:
+                    raise ValueError(f"{e}") from None
                 if ch == '"':
                     in_string = False
                 i += 1
@@ -135,7 +148,7 @@ class BasicTokenizer:
 
             # Enter string literal
             if ch == '"':
-                tokens.append(ord(ch))
+                tokens.append(self._char_to_byte(ch, "(string delimiter)"))
                 in_string = True
                 i += 1
                 continue
@@ -146,7 +159,10 @@ class BasicTokenizer:
                 i += 3
                 # Copy rest of the line as-is
                 while i < len(content):
-                    tokens.append(ord(content[i]))
+                    try:
+                        tokens.append(self._char_to_byte(content[i], "(in REM comment)"))
+                    except ValueError as e:
+                        raise ValueError(f"{e}") from None
                     i += 1
                 break
 
@@ -163,19 +179,33 @@ class BasicTokenizer:
                 continue
 
             # Default: copy character
-            tokens.append(ord(ch))
+            try:
+                tokens.append(self._char_to_byte(ch))
+            except ValueError as e:
+                raise ValueError(f"{e}") from None
             i += 1
 
         return tokens
 
     def tokenize_basic(self, source: str) -> bytes:
+        """Tokenize BASIC source code to PRG format.
+        
+        Args:
+            source: BASIC source code with line numbers
+            
+        Returns:
+            bytes: PRG file data with load address header
+            
+        Raises:
+            ValueError: If source contains invalid characters or syntax
+        """
         lines = source.strip().split('\n')
 
         start_addr = 0x0801
         program = bytearray()
         current_addr = start_addr
 
-        for line in lines:
+        for line_idx, line in enumerate(lines, 1):
             line = line.rstrip()
             if not line or line.isspace():
                 continue
@@ -187,7 +217,11 @@ class BasicTokenizer:
             line_num = int(m.group(1))
             content = m.group(2) if m.group(2) is not None else ""
 
-            tokens = self.tokenize_line(content)
+            try:
+                tokens = self.tokenize_line(content)
+            except ValueError as e:
+                raise ValueError(f"Line {line_num}: {e}") from None
+            
             tokens.append(0x00)  # line end
 
             next_addr = current_addr + 4 + len(tokens)
